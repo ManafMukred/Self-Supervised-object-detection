@@ -3,6 +3,7 @@ import argparse
 import os
 import random
 import time
+from data_util import data_process, simsclr_augmentor, simsiam_augmentor, img_scaling, eval_augmenter, get_projector
 import datetime
 from pathlib import Path
 import cv2
@@ -15,6 +16,8 @@ import tensorflow_addons as tfa
 import tensorflow_datasets as tfds
 import numpy as np
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import StratifiedKFold
+
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 # create model dir
@@ -36,17 +39,19 @@ parser.add_argument('-n','--num_aug', dest='AUG', default= 1, type=int,
                     help='number of augmentations')
 parser.add_argument('-s','--im_size', dest='SIZE', default= 64, type=int,
                     help='size of images')
+parser.add_argument('-t','--im_size', dest='TRIALS', default= 1, type=int,
+                    help='number of trials for cross validation')
 args = vars(parser.parse_args())
 
 
-builder = tfds.ImageFolder(args['DATA'])
+builder = tfds.ImageFolder(args['DATA']) #path/to/imgs/
 ds_info = builder.info # num examples, labels... are automatically calculated
 # assuming that data split was or will be specified, we DO NOT use 'split' parameter
-ds = builder.as_dataset(shuffle_files=True, as_supervised=True) 
+ds = builder.as_dataset(split='train', shuffle_files=True, as_supervised=True) 
 class_names = builder.info.features['label'].names
 NUM_CLASSES= len(class_names)
 # Set the directory path where your data is located
-data_dir = args['DATA']
+data_dir = args['DATA']+'train'
 IMG_SIZE = args['SIZE']
 
 #### setting hyperparameters 
@@ -92,60 +97,6 @@ elif ALGORITHM == "simclr":
     N_LAYER = 2
     DIM = 128  # The layer size for the projector and predictor models.
 
-from augmentation import augment_image_pretraining, augment_image_finetuning
-
-def img_scaling(img):
-    return tf.keras.applications.imagenet_utils.preprocess_input(
-        img, 
-        data_format=None, 
-        mode='torch')
-
-@tf.function
-def simsclr_augmentor(img):
-    return simsiam_augmentor(img, blur=True, area_range=(0.33, 1.0), h2=1.0, h3=1.0)
-@tf.function
-def simsiam_augmentor(img, blur=True, area_range=(0.2, 1.0), h2=0.4, h3=0.4):
-
-    # random resize and crop. Increase the size before we crop.
-    img = tfsim.augmenters.augmentation_utils.cropping.crop_and_resize(
-        img, IMG_SIZE, IMG_SIZE, area_range=area_range
-    )
-    
-    # The following transforms expect the data to be [0, 1]
-    img /= 255.
-    
-    # random color jitter
-    def _jitter_transform(x):
-        return tfsim.augmenters.augmentation_utils.color_jitter.color_jitter_rand(
-            x,
-            np.random.uniform(0.0, 0.4),
-            np.random.uniform(0.0, h2),
-            np.random.uniform(0.0, h3),
-            np.random.uniform(0.0, 0.1),
-            "multiplicative",
-        )
-
-    img = tfsim.augmenters.augmentation_utils.random_apply.random_apply(_jitter_transform, p=0.8, x=img)
-
-    # # random grayscale
-    def _grascayle_transform(x):
-        return tfsim.augmenters.augmentation_utils.color_jitter.to_grayscale(x)
-
-    img = tfsim.augmenters.augmentation_utils.random_apply.random_apply(_grascayle_transform, p=0.2, x=img)
-
-    # optional random gaussian blur
-    if blur:
-        img = tfsim.augmenters.augmentation_utils.blur.random_blur(img, p=0.5, height=IMG_SIZE, width=IMG_SIZE)
-
-    # random horizontal flip
-    img = tf.image.random_flip_left_right(img)
-    
-    # scale the data back to [0, 255]
-    img = img * 255.
-    img = tf.clip_by_value(img, 0., 255.)
-
-    return img
-
 
 @tf.function()
 def process(img):
@@ -172,48 +123,6 @@ def get_backbone(img_size, activation="relu", preproc_mode="torch"):
     )
     return backbone
 
-def get_projector(input_dim, dim, activation="relu", num_layers: int = 2):
-    inputs = tf.keras.layers.Input((input_dim,), name="projector_input")
-    x = inputs
-
-    for i in range(num_layers - 1):
-        x = tf.keras.layers.Dense(
-            dim,
-            use_bias=False,
-            kernel_initializer=tf.keras.initializers.LecunUniform(),
-            name=f"projector_layer_{i}",
-        )(x)
-        x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name=f"batch_normalization_{i}")(x)
-        x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_{i}")(x)
-    x = tf.keras.layers.Dense(
-        dim,
-        use_bias=False,
-        kernel_initializer=tf.keras.initializers.LecunUniform(),
-        name="projector_output",
-    )(x)
-    x = tf.keras.layers.BatchNormalization(
-        epsilon=1.001e-5,
-        center=False,  # Page:5, Paragraph:2 of SimSiam paper
-        scale=False,  # Page:5, Paragraph:2 of SimSiam paper
-        name=f"batch_normalization_ouput",
-    )(x)
-    # Metric Logging layer. Monitors the std of the layer activations.
-    # Degnerate solutions colapse to 0 while valid solutions will move
-    # towards something like 0.0220. The actual number will depend on the layer size.
-    o = tfsim.layers.ActivationStdLoggingLayer(name="proj_std")(x)
-    projector = tf.keras.Model(inputs, o, name="projector")
-    return projector
-
-@tf.function
-def eval_augmenter(img):
-    # random resize and crop. Increase the size before we crop.
-    img = tfsim.augmenters.augmentation_utils.cropping.crop_and_resize(
-        img, IMG_SIZE, IMG_SIZE, area_range=(0.2, 1.0)
-    )
-    # random horizontal flip
-    img = tf.image.random_flip_left_right(img)
-    img = tf.clip_by_value(img, 0., 255.)
-    return img
 
 def get_eval_model(img_size, backbone, total_steps, trainable=True,algo = None, lr=0.1):
         if algo == "simsiam":
@@ -256,17 +165,13 @@ def get_eval_model(img_size, backbone, total_steps, trainable=True,algo = None, 
         return model
 
 
-EXP_NAME = f"Xval5_{ALGORITHM}_{DATA_NAME}_b{BATCH_SIZE}_e{PRE_TRAIN_EPOCHS}_{TIME}"
+EXP_NAME = f"Xval_{ALGORITHM}_{DATA_NAME}_b{BATCH_SIZE}_e{PRE_TRAIN_EPOCHS}_{TIME}"
 Path(DATA_PATH / EXP_NAME).mkdir()
 Path(DATA_PATH / EXP_NAME / "cls_eval").mkdir()
 # setting logs dir
 log_dir = DATA_PATH / EXP_NAME / "logs" 
 chkpt_dir = DATA_PATH / EXP_NAME / "checkpoint" 
 
-x_test = np.load('np_imgs/x_test.npy')
-y_test = np.load('np_imgs/y_test.npy')
-x_test  =  tf.convert_to_tensor(x_test)
-y_test  =  tf.convert_to_tensor(y_test)
 
 ########################################## main train for Xval ##########################################
 Histories = {}
@@ -276,48 +181,54 @@ ptpct_Histories = {}
 no_res = []
 pt_res = []
 pctpt_res = []
-num_trials = 5
-for i in range(num_trials): 
+num_trials = args['TRIALS']
+i=-1
+x_train, x_test, y_train, y_test = data_process(data_dir= args['DATA'], num_aug= args['AUG'],im_size = args['SIZE'])
+x_test  =  tf.convert_to_tensor(x_test)
+y_test  =  tf.convert_to_tensor(y_test)
 
-    with tf.device("CPU"):  
-        x_train = np.load(f'np_imgs/x_Xtrain{i+1}.npy')
-        y_train = np.load(f'np_imgs/y_Xtrain{i+1}.npy')
-        print(f"Cross validation {i+1} training of {x_train.shape[0]} images")
-        x_train =  tf.convert_to_tensor(x_train)
-        y_train =  tf.convert_to_tensor(y_train)
-        x_val = np.load(f'np_imgs/x_Xval{i+1}.npy')
-        y_val = np.load(f'np_imgs/y_Xval{i+1}.npy')
-        print(f"Cross validation {i+1} validation of {x_val.shape[0]} images")
-        x_val =  tf.convert_to_tensor(x_val)
-        y_val =  tf.convert_to_tensor(y_val)
+#### create  sets for cross validation
+skf = StratifiedKFold(n_splits=num_trials) #  number of folds
+for train_index, val_index in skf.split(x_train, y_train):   
+    i+=1
+    train_images, val_images = x_train[train_index], x_train[val_index]
+    train_labels, val_labels = y_train[train_index], y_train[val_index]
 
-        train_ds = tf.data.Dataset.from_tensor_slices(x_train)
-        train_ds = train_ds.repeat()
-        train_ds = train_ds.shuffle(1024)
-        train_ds = train_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
-        train_ds = train_ds.batch(BATCH_SIZE)
-        train_ds = train_ds.prefetch(tf.data.AUTOTUNE)
-        val_ds = tf.data.Dataset.from_tensor_slices(x_val)
-        val_ds = val_ds.repeat()
-        val_ds = val_ds.shuffle(1024)
-        val_ds = val_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
-        val_ds = val_ds.batch(BATCH_SIZE)
-        val_ds = val_ds.prefetch(tf.data.AUTOTUNE)
+    print(f"Cross validation set {i} training of {train_images.shape[0]} images")
+    x_train =  tf.convert_to_tensor(train_images)
+    y_train =  tf.convert_to_tensor(train_labels)
+ 
+    print(f"Cross validation set {i} validation of {val_images.shape[0]} images")
+    x_val =  tf.convert_to_tensor(val_images)
+    y_val =  tf.convert_to_tensor(val_labels)
+
+    train_ds = tf.data.Dataset.from_tensor_slices(x_train)
+    train_ds = train_ds.repeat()
+    train_ds = train_ds.shuffle(1024)
+    train_ds = train_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
+    train_ds = train_ds.batch(BATCH_SIZE)
+    train_ds = train_ds.prefetch(tf.data.AUTOTUNE)
+    val_ds = tf.data.Dataset.from_tensor_slices(x_val)
+    val_ds = val_ds.repeat()
+    val_ds = val_ds.shuffle(1024)
+    val_ds = val_ds.map(process, num_parallel_calls=tf.data.AUTOTUNE)
+    val_ds = val_ds.batch(BATCH_SIZE)
+    val_ds = val_ds.prefetch(tf.data.AUTOTUNE)
 
 
-        backbone = get_backbone(IMG_SIZE)
+    backbone = get_backbone(IMG_SIZE)
 
 
-        predictor = None # Passing None will automatically build the default predictor.
-        projector = get_projector(input_dim=backbone.output.shape[-1], dim=DIM, num_layers= N_LAYER)
+    predictor = None # Passing None will automatically build the default predictor.
+    projector = get_projector(input_dim=backbone.output.shape[-1], dim=DIM, num_layers= N_LAYER)
 
-        model = tfsim.models.create_contrastive_model(
-            backbone=backbone,
-            projector=projector,
-            predictor=predictor,
-            algorithm=ALGORITHM,
-            name=ALGORITHM,
-        )
+    model = tfsim.models.create_contrastive_model(
+        backbone=backbone,
+        projector=projector,
+        predictor=predictor,
+        algorithm=ALGORITHM,
+        name=ALGORITHM,
+    )
 
     if ALGORITHM == "simsiam":
         loss = tfsim.losses.SimSiamLoss(projection_type="cosine_distance", name=ALGORITHM)
