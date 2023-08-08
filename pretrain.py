@@ -101,10 +101,10 @@ def img_scaling(img):
         mode='torch')
 
 @tf.function
-def simsclr_augmenter(img):
-    return simsiam_augmenter(img, blur=True, area_range=(0.33, 1.0), h2=1.0, h3=1.0)
+def simsclr_augmentor(img):
+    return simsiam_augmentor(img, blur=True, area_range=(0.33, 1.0), h2=1.0, h3=1.0)
 @tf.function
-def simsiam_augmenter(img, blur=True, area_range=(0.2, 1.0), h2=0.4, h3=0.4):
+def simsiam_augmentor(img, blur=True, area_range=(0.2, 1.0), h2=0.4, h3=0.4):
 
     # random resize and crop. Increase the size before we crop.
     img = tfsim.augmenters.augmentation_utils.cropping.crop_and_resize(
@@ -150,15 +150,15 @@ def simsiam_augmenter(img, blur=True, area_range=(0.2, 1.0), h2=0.4, h3=0.4):
 @tf.function()
 def process(img):
     if ALGORITHM == 'simsiam':
-        view1 = simsiam_augmenter(img)
+        view1 = simsiam_augmentor(img)
         view1 = img_scaling(view1)
-        view2 = simsiam_augmenter(img)
+        view2 = simsiam_augmentor(img)
         view2 = img_scaling(view2)
         return (view1, view2)
     else:
-        view1 = simsclr_augmenter(img)
+        view1 = simsclr_augmentor(img)
         view1 = img_scaling(view1)
-        view2 = simsclr_augmenter(img)
+        view2 = simsclr_augmentor(img)
         view2 = img_scaling(view2)
         return (view1, view2)
 
