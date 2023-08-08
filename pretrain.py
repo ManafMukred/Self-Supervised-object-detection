@@ -31,59 +31,29 @@ parser = argparse.ArgumentParser(
 parser.add_argument('-a','--algorithm', dest='ALGORITHM', default= 'simclr',
                     help='name of self supervised algorithm')
 parser.add_argument('-i','--img_dir', dest='DATA',
-                    help='name of self supervised algorithm')
+                    help='data directory')
 parser.add_argument('-n','--num_aug', dest='AUG', default= 1, type=int,
-                    help='name of self supervised algorithm')
+                    help='number of augmentations')
+parser.add_argument('-s','--im_size', dest='SIZE', default= 64, type=int,
+                    help='size of images')
 args = vars(parser.parse_args())
 
 
-with tf.device("CPU"):
-
-    im_size = 64
-    builder = tfds.ImageFolder(args['DATA'])
-    ds_info = builder.info # num examples, labels... are automatically calculated
-    # assuming that data split was or will be specified, we DO NOT use 'split' parameter
-    ds = builder.as_dataset(shuffle_files=True, as_supervised=True) 
-
+builder = tfds.ImageFolder(args['DATA'])
+ds_info = builder.info # num examples, labels... are automatically calculated
+# assuming that data split was or will be specified, we DO NOT use 'split' parameter
+ds = builder.as_dataset(shuffle_files=True, as_supervised=True) 
 class_names = builder.info.features['label'].names
 NUM_CLASSES= len(class_names)
-
 # Set the directory path where your data is located
 data_dir = args['DATA']
-
-num_augmentations = args['AUG']
-
-# Create an empty list to store augmented images and labels
-augmented_images = []
-augmented_labels = []
-
-# Initialize the ImageDataGenerator with desired augmentation parameters
-datagen = ImageDataGenerator(
-    # Specify desired augmentation techniques and parameters
-    rotation_range=30,
-    width_shift_range=0.2,
-    height_shift_range=0.2,
-    shear_range=0.2,
-    zoom_range=0.2,
-    horizontal_flip=True,
-    fill_mode='nearest'
-)
-
-# Use the ImageDataGenerator.flow_from_directory() method to load the data and perform augmentation
-data_generator = datagen.flow_from_directory(
-    directory=data_dir,
-    target_size=(im_size, im_size),  # Specify the desired image size
-    batch_size=32,
-    class_mode='categorical',
-    shuffle=True
-)
+IMG_SIZE = args['SIZE']
 
 #### setting hyperparameters 
 
 ALGORITHM = args['ALGORITHM']  # @param ["barlow", "simsiam", "simclr", "vicreg"]
 
 # setting up hyperparameters
-IMG_SIZE = 64
 BATCH_SIZE = 256
 PRE_TRAIN_EPOCHS = 100
 PRE_TRAIN_STEPS_PER_EPOCH = 18720 // BATCH_SIZE   #################################33
@@ -165,7 +135,7 @@ def simsiam_augmenter(img, blur=True, area_range=(0.2, 1.0), h2=0.4, h3=0.4):
 
     # optional random gaussian blur
     if blur:
-        img = tfsim.augmenters.augmentation_utils.blur.random_blur(img, p=0.5, height=im_size, width=im_size)
+        img = tfsim.augmenters.augmentation_utils.blur.random_blur(img, p=0.5, height=IMG_SIZE, width=IMG_SIZE)
 
     # random horizontal flip
     img = tf.image.random_flip_left_right(img)
@@ -293,8 +263,8 @@ Path(DATA_PATH / EXP_NAME / "cls_eval").mkdir()
 log_dir = DATA_PATH / EXP_NAME / "logs" 
 chkpt_dir = DATA_PATH / EXP_NAME / "checkpoint" 
 
-x_test = np.load('np_images/xraw5carsaug64_Xtest.npy')
-y_test = np.load('np_images/yraw5carsaug64_Xtest.npy')
+x_test = np.load('np_imgs/x_test.npy')
+y_test = np.load('np_imgs/y_test.npy')
 x_test  =  tf.convert_to_tensor(x_test)
 y_test  =  tf.convert_to_tensor(y_test)
 
@@ -310,13 +280,13 @@ num_trials = 5
 for i in range(num_trials): 
 
     with tf.device("CPU"):  
-        x_train = np.load(f'np_images/xraw5carsaug64_Xt{i+1}.npy')
-        y_train = np.load(f'np_images/yraw5carsaug64_Xt{i+1}.npy')
+        x_train = np.load(f'np_imgs/x_Xtrain{i+1}.npy')
+        y_train = np.load(f'np_imgs/y_Xtrain{i+1}.npy')
         print(f"Cross validation {i+1} training of {x_train.shape[0]} images")
         x_train =  tf.convert_to_tensor(x_train)
         y_train =  tf.convert_to_tensor(y_train)
-        x_val = np.load(f'np_images/xraw5carsaug64_Xv{i+1}.npy')
-        y_val = np.load(f'np_images/yraw5carsaug64_Xv{i+1}.npy')
+        x_val = np.load(f'np_imgs/x_Xval{i+1}.npy')
+        y_val = np.load(f'np_imgs/y_Xval{i+1}.npy')
         print(f"Cross validation {i+1} validation of {x_val.shape[0]} images")
         x_val =  tf.convert_to_tensor(x_val)
         y_val =  tf.convert_to_tensor(y_val)
