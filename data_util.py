@@ -1,16 +1,9 @@
 from sklearn.model_selection import train_test_split
-import random
-import time
-import datetime
-from pathlib import Path
 import cv2
 import argparse
-import os
-import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow_similarity as tfsim
 import tensorflow as tf
-import tensorflow_addons as tfa
 import tensorflow_datasets as tfds
 import numpy as np
 from tensorflow.keras.preprocessing.image import ImageDataGenerator

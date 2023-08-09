@@ -1,21 +1,14 @@
 from  models.official.modeling.optimization.lars_optimizer import LARS
 import argparse
 import os
-import random
-import time
 from data_util import data_process, simsclr_augmentor, simsiam_augmentor, img_scaling, eval_augmenter, get_projector
 import datetime
 from pathlib import Path
-import cv2
 import pickle
-import matplotlib.pyplot as plt
-import numpy as np
 import tensorflow_similarity as tfsim
 import tensorflow as tf
 import tensorflow_addons as tfa
 import tensorflow_datasets as tfds
-import numpy as np
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from sklearn.model_selection import StratifiedKFold
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
