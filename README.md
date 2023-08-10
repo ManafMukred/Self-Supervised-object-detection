@@ -16,6 +16,9 @@ Pretraining and evaluation is done on one dataset, and transfer learning is perf
     * ```-s``` : unified image size for pretraining 
     * ```-t``` : number of trials (for cross validation)
 * Run ```xml2txt.py``` file to prepare data for transfer learning, the following arguments should be given:
-    * ```-i``` : input images directory 
+    * ```-i``` : input images directory for the dataset that will be used in transfer learning
     * ```-l``` : xml annotations directory
     * ```-d``` : detination where all images and annotations will be sent (this directory will be used in ```detectionTL.ipynb```)
+* For transfer learning phase, you will give the directory generated from ```xml2txt.py``` in ```detectionTL.ipynb``` notebook.
+
+project structure and more details will come soon, stay tuned! 
