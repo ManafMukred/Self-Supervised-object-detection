@@ -1,4 +1,4 @@
-# Self-Supervised Object Detection on Custom Dataset with SimCLR and SimSiam
+# Self-Supervised Object Detection on Custom Dataset with Barlow, SimCLR and SimSiam
 
 #### **Project Summary **
 This project utilizes self-supervised learning for vehicle-type detection, the subset of data was taken from ImageNet. However, this code can be implemented on any other objects depending on your dataset.
