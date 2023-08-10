@@ -54,8 +54,6 @@ ALGORITHM = args['ALGORITHM']  # @param ["barlow", "simsiam", "simclr", "vicreg"
 # setting up hyperparameters
 BATCH_SIZE = 256
 PRE_TRAIN_EPOCHS = 100
-PRE_TRAIN_STEPS_PER_EPOCH = 18720 // BATCH_SIZE   #################################33
-VAL_STEPS_PER_EPOCH = 4680// BATCH_SIZE   #20
 WEIGHT_DECAY = 1e-4
 DIM = 2048  # The layer size for the projector and predictor models.
 WARMUP_LR = 0.0
@@ -63,7 +61,7 @@ WARMUP_STEPS = 0
 TEMPERATURE = None
 
 
-# time
+# get time to uniquely name each experiment
 now = datetime.datetime.now() 
 TIME = now.strftime("%H%M.%d%m%Y")
 DATA_NAME = f'{IMG_SIZE}image{NUM_CLASSES}'
@@ -100,6 +98,7 @@ def process(img):
         view2 = img_scaling(view2)
         return (view1, view2)
     else:
+        # barlow augmentations are same as simclr
         view1 = simsclr_augmentor(img)
         view1 = img_scaling(view1)
         view2 = simsclr_augmentor(img)
@@ -167,15 +166,15 @@ chkpt_dir = DATA_PATH / EXP_NAME / "checkpoint"
 
 
 ########################################## main train for Xval ##########################################
-Histories = {}
-pt_Histories = {}
-no_pt_Histories = {}
-ptpct_Histories = {}
-no_res = []
-pt_res = []
-pctpt_res = []
-num_trials = args['TRIALS']
-i=-1
+Histories = {} # history dict with keys equal to number of trials
+pt_Histories = {} # similar to Histories but for linear evaluation of pretrained model
+no_pt_Histories = {} # similar to Histories but for linear evaluation of untrained model
+ptpct_Histories = {} # similar to Histories but for linear evaluation of pretrained model on part of the data e.g.10%
+no_pt_result = [] # list for saving metrics for each trial of untrained model
+pt_result = [] # list for saving metrics for each trial of pretrained model
+pctpt_result = [] # list for saving metrics for each trial of pretrained model on part of the data e.g.10%
+num_trials = args['TRIALS'] # determine number of trials for cross validation (default is 1)
+i=-1 # setting a counter for cross validation 
 x_train, x_test, y_train, y_test = data_process(data_dir= args['DATA'], num_aug= args['AUG'],im_size = args['SIZE'])
 x_test  =  tf.convert_to_tensor(x_test)
 y_test  =  tf.convert_to_tensor(y_test)
@@ -186,7 +185,11 @@ for train_index, val_index in skf.split(x_train, y_train):
     i+=1
     train_images, val_images = x_train[train_index], x_train[val_index]
     train_labels, val_labels = y_train[train_index], y_train[val_index]
-
+    # set  steps per epoch 
+    PRE_TRAIN_STEPS_PER_EPOCH = train_images.shape[0] // BATCH_SIZE 
+    VAL_STEPS_PER_EPOCH = val_images.shape[0]// BATCH_SIZE   
+  
+    # preprocessing data for training
     print(f"Cross validation set {i} training of {train_images.shape[0]} images")
     x_train =  tf.convert_to_tensor(train_images)
     y_train =  tf.convert_to_tensor(train_labels)
@@ -208,13 +211,11 @@ for train_index, val_index in skf.split(x_train, y_train):
     val_ds = val_ds.batch(BATCH_SIZE)
     val_ds = val_ds.prefetch(tf.data.AUTOTUNE)
 
-
+    # get backbone, projector head, and predictor head
     backbone = get_backbone(IMG_SIZE)
-
-
     predictor = None # Passing None will automatically build the default predictor.
     projector = get_projector(input_dim=backbone.output.shape[-1], dim=DIM, num_layers= N_LAYER)
-
+    # create the model
     model = tfsim.models.create_contrastive_model(
         backbone=backbone,
         projector=projector,
@@ -242,19 +243,15 @@ for train_index, val_index in skf.split(x_train, y_train):
         loss = tfsim.losses.SimCLRLoss(name=ALGORITHM, temperature=TEMPERATURE)
         # optimizer = tfa.optimizers.LAMB(learning_rate=INIT_LR)
         optimizer = LARS(learning_rate=INIT_LR)
-    elif ALGORITHM == "vicreg":
-        loss = tfsim.losses.VicReg(name=ALGORITHM)
-        # optimizer = tfa.optimizers.LAMB(learning_rate=INIT_LR)
-        optimizer = LARS(learning_rate=INIT_LR)
 
     else:
         raise ValueError(f"{ALGORITHM} is not supported.")
 
+#################### Pretraining ##############################
     model.compile(
         optimizer=optimizer,
         loss=loss,
     )
-
     tbc = tf.keras.callbacks.TensorBoard(
         log_dir=log_dir,
         histogram_freq=1,
@@ -267,7 +264,6 @@ for train_index, val_index in skf.split(x_train, y_train):
         save_best_only=True,
         save_weights_only=True,
     )
-
     history = model.fit(
         train_ds,
         epochs=PRE_TRAIN_EPOCHS,
@@ -279,7 +275,7 @@ for train_index, val_index in skf.split(x_train, y_train):
         
     )
 
-#################### linear evaluation ##############################
+#################### linear evaluation ##########################
 
     BATCH_SIZE = 256
     TEST_EPOCHS = 90
@@ -305,12 +301,12 @@ for train_index, val_index in skf.split(x_train, y_train):
     eval_test_ds = eval_test_ds.batch(BATCH_SIZE)
     eval_test_ds = eval_test_ds.prefetch(tf.data.AUTOTUNE)
 
+    # supervised linear evaluation based on the same backbone
     no_pt_eval_model = get_eval_model(
         img_size=IMG_SIZE,
         backbone=get_backbone(IMG_SIZE, DIM),
         total_steps=TEST_EPOCHS * TEST_STEPS_PER_EPOCH,
         trainable=False,
-
     )
 
     no_pt_history = no_pt_eval_model.fit(
@@ -323,8 +319,7 @@ for train_index, val_index in skf.split(x_train, y_train):
         verbose=2,
     )
 
-
-
+    # SSL linear evaluation 
     pt_eval_model = get_eval_model(
         img_size=IMG_SIZE,
         backbone=model.backbone,
@@ -332,7 +327,7 @@ for train_index, val_index in skf.split(x_train, y_train):
         trainable=False,
         algo = ALGORITHM
     )
-    # pt_eval_model.summary()
+
     pt_history = pt_eval_model.fit(
         eval_train_ds,
         batch_size=BATCH_SIZE,
@@ -343,17 +338,13 @@ for train_index, val_index in skf.split(x_train, y_train):
         verbose=2,
     )
 
-    percent = 10 # value in %
-
-    ########3 prepare eval data with 25%
+    # setting percentage to test linear evaluation on part of the data (just for comaprison)
     percent = 10 # value in %
     div = 100 // percent
     x_train_pct = x_train[:int(x_train.shape[0])//div]
     y_train_pct = y_train[:x_train.shape[0]//div]
     x_val_pct = x_val[:x_val.shape[0]//div]
     y_val_pct = y_val[:x_val.shape[0]//div]
-
-    TEST_EPOCHS = 90
     TEST_STEPS_PER_EPOCH = len(x_train_pct) // BATCH_SIZE
 
     eval_train_ds_pct = tf.data.Dataset.from_tensor_slices((x_train_pct, tf.keras.utils.to_categorical(y_train_pct, NUM_CLASSES)))
@@ -391,16 +382,14 @@ for train_index, val_index in skf.split(x_train, y_train):
         verbose=2,
     )
 
+    #### Getting results from the 3 models of this round
+    no_pt_result.append(no_pt_eval_model.evaluate(eval_test_ds))
+    pt_result.append(pt_eval_model.evaluate(eval_test_ds))
+    pctpt_result.append(ptpct_eval_model.evaluate(eval_test_ds))
 
-
-    #### testing 
-    no_res.append(no_pt_eval_model.evaluate(eval_test_ds))
-    pt_res.append(pt_eval_model.evaluate(eval_test_ds))
-    pctpt_res.append(ptpct_eval_model.evaluate(eval_test_ds))
-
-    print("no pretrain", no_res[i])
-    print("pretrained", pt_res[i])
-    print("10pretrained", pctpt_res[i])
+    print("no pretrain", no_pt_result[i])
+    print("pretrained", pt_result[i])
+    print("10pretrained", pctpt_result[i]) # evaluated on 10% of the data 
 
     Histories[f"history_X{i+1}"] = history.history
     pt_Histories[f"history_X{i+1}"] = pt_history.history
@@ -408,52 +397,41 @@ for train_index, val_index in skf.split(x_train, y_train):
     ptpct_Histories[f"history_X{i+1}"] = ptpct_history.history
     
     ############# saving best model ################
-    if i == 0:
-        pt_eval_model.save(DATA_PATH / EXP_NAME / "trained_model")
-        # no_pt_eval_model.save(DATA_PATH / EXP_NAME / "trained_model")
+    # save the first model as best
+    if i == 0:  
+        pt_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval"/ "trained_model")
+        no_pt_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval"/ "trained_model")
 
     
     #check if this round's accuracy performs better to save it as our best model    
-    elif pt_res[i][1] > pt_res[i-1][1]:
-    
-        pt_eval_model.save(DATA_PATH / EXP_NAME / "trained_model")
+    elif pt_result[i][1] > pt_result[i-1][1]:
+        pt_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval"/ "trained_model")
         
     #check if this round's accuracy performs better to save it as our best model    
-    elif pt_res[i][1] > pt_res[i-1][1]:
-    
-        no_pt_eval_model.save(DATA_PATH / EXP_NAME / "trained_model")
+    elif no_pt_result[i][1] > no_pt_result[i-1][1]:
+        no_pt_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval"/ "trained_model")
 
 # saving models and their history data
-print("FINAL no pretrain", no_res)
-print("FINAL pretrained", pt_res)
-print("FINAL 10pretrained", pctpt_res)
-#### save base pretrined 
-# model.save(DATA_PATH / EXP_NAME / "trained_model")   ####################################################
+print("FINAL no pretrain", no_pt_result)
+print("FINAL pretrained", pt_result)
+print("FINAL 10pretrained", pctpt_result)
+
+#### save our base pretrined model and its histories
+model.save(DATA_PATH / EXP_NAME / "trained_model")   ####################################################
 
 with open(DATA_PATH / EXP_NAME/ "Histories", 'wb') as file_pi:      ###############################################3
         pickle.dump(Histories, file_pi)
 
-
-no_pt_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval" / f"NPt_{TEST_EPOCHS}")
-
+# save linear evaluation histories
 with open(DATA_PATH / EXP_NAME / "cls_eval" / f"NPt_e{TEST_EPOCHS}_Histories", 'wb') as file_pi:
     pickle.dump(no_pt_Histories, file_pi)
-
-pt_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval" / f"Pt_{TEST_EPOCHS}")
 
 with open(DATA_PATH / EXP_NAME / "cls_eval" / f"Pt_e{TEST_EPOCHS}_Histories", 'wb') as file_pi:
     pickle.dump(pt_Histories, file_pi)
     
-ptpct_eval_model.save(DATA_PATH / EXP_NAME / "cls_eval" / f"Pt{percent}pct_e{TEST_EPOCHS}")
-
 with open(DATA_PATH / EXP_NAME / "cls_eval" / f"Pt{percent}pct_e{TEST_EPOCHS}_Histories", 'wb') as file_pi:
     pickle.dump(ptpct_Histories, file_pi)
 
-
-# clear any occupied VRAM in the GPU after training
-from numba import cuda
-device = cuda.get_current_device()
-device.reset()
 
 
 
