@@ -32,7 +32,7 @@ parser.add_argument('-n','--num_aug', dest='AUG', default= 1, type=int,
                     help='number of augmentations')
 parser.add_argument('-s','--im_size', dest='SIZE', default= 64, type=int,
                     help='size of images')
-parser.add_argument('-t','--im_size', dest='TRIALS', default= 1, type=int,
+parser.add_argument('-t','--num_trials', dest='TRIALS', default= 1, type=int,
                     help='number of trials for cross validation')
 args = vars(parser.parse_args())
 

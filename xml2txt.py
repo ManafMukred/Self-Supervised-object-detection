@@ -29,7 +29,7 @@ parser = argparse.ArgumentParser(
     description='get input directory')
 parser.add_argument('-i','--src', dest='IMG', type= str,
                     help='images folder')
-parser.add_argument('-o','--lbl', dest='LBL', type= str,
+parser.add_argument('-l','--lbl', dest='LBL', type= str,
                     help='annotation folder')
 parser.add_argument('-d','--dest', dest='DST', type= str,
                     help='folder that contrain images and labels together')
@@ -59,20 +59,15 @@ print(f"moved {i} annotations")
 
 
 classes = []
-input_dir = dest
-output_dir = dest
-image_dir = dest
-
-
 
 # identify all the xml files in the annotations folder (input directory)
-files = glob.glob(os.path.join(input_dir, '*.xml'))
+files = glob.glob(os.path.join(dest, '*.xml'))
 # loop through each 
 for fil in files:
     basename = os.path.basename(fil)
     filename = os.path.splitext(basename)[0]
     # check if the label contains the corresponding image file
-    if not os.path.exists(os.path.join(image_dir, f"{filename}.JPEG")):
+    if not os.path.exists(os.path.join(dest, f"{filename}.JPEG")):
         print(f"{filename} image does not exist!")
         continue
 
@@ -100,7 +95,7 @@ for fil in files:
 
     if result:
         # generate a YOLO format text file for each xml file
-        with open(os.path.join(output_dir, f"{filename}.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(dest, f"{filename}.txt"), "w", encoding="utf-8") as f:
             f.write("\n".join(result))
 
 # generate the classes file as reference
