@@ -55,7 +55,7 @@ ALGORITHM = args['ALGORITHM']  # @param ["barlow", "simsiam", "simclr", "vicreg"
 BATCH_SIZE = 256
 PRE_TRAIN_EPOCHS = 100
 WEIGHT_DECAY = 1e-4
-DIM = 2048  # The layer size for the projector and predictor models.
+DIM = 2048  # The layer size for the projector model.
 WARMUP_LR = 0.0
 WARMUP_STEPS = 0
 TEMPERATURE = None
@@ -69,8 +69,8 @@ DATA_NAME = f'{IMG_SIZE}image{NUM_CLASSES}'
 if ALGORITHM == "simsiam":
     INIT_LR = 5e-2 * int(BATCH_SIZE / 256)  # try optimal 0.5
     WEIGHT_DECAY = 5e-4  # optimal 1e-5
-    N_LAYER = 2
-    DIM = 2048  # The layer size for the projector and predictor models.
+    N_LAYER = 3
+    DIM = 2048  # The layer size for the projector model.
 
 elif ALGORITHM == "barlow":
     # INIT_LR = 1e-3  # Initial LR for the learning rate schedule.
@@ -86,7 +86,7 @@ elif ALGORITHM == "simclr":
     TEMPERATURE = 0.1  # Tuned for CIFAR10, see section B.9 in the paper.
     WEIGHT_DECAY = 1e-6 
     N_LAYER = 2
-    DIM = 128  # The layer size for the projector and predictor models.
+    DIM = 128  # The layer size for the projector model.
 
 
 @tf.function()
@@ -213,7 +213,7 @@ for train_index, val_index in skf.split(x_train, y_train):
 
     # get backbone, projector head, and predictor head
     backbone = get_backbone(IMG_SIZE)
-    predictor = None # Passing None will automatically build the default predictor.
+    predictor = None # Passing None will give default predictor with 2 layers and dim=512
     projector = get_projector(input_dim=backbone.output.shape[-1], dim=DIM, num_layers= N_LAYER)
     # create the model
     model = tfsim.models.create_contrastive_model(

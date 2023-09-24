@@ -185,6 +185,31 @@ def get_projector(input_dim, dim, activation="relu", num_layers: int = 2):
     projector = tf.keras.Model(inputs, o, name="projector")
     return projector
 
+def get_predictor(input_dim, hidden_dim=512, activation="relu"):
+    inputs = tf.keras.layers.Input(shape=(input_dim,), name="predictor_input")
+    x = inputs
+
+    x = tf.keras.layers.Dense(
+        hidden_dim,
+        use_bias=False,
+        kernel_initializer=tf.keras.initializers.LecunUniform(),
+        name="predictor_layer_0",
+    )(x)
+    x = tf.keras.layers.BatchNormalization(epsilon=1.001e-5, name="batch_normalization_0")(x)
+    x = tf.keras.layers.Activation(activation, name=f"{activation}_activation_0")(x)
+
+    x = tf.keras.layers.Dense(
+        input_dim,
+        kernel_initializer=tf.keras.initializers.LecunUniform(),
+        name="predictor_output",
+    )(x)
+    # Metric Logging layer. Monitors the std of the layer activations.
+    # Degnerate solutions colapse to 0 while valid solutions will move
+    # towards something like 0.0220. The actual number will depend on the layer size.
+    o = tfsim.layers.ActivationStdLoggingLayer(name="pred_std")(x)
+    predictor = tf.keras.Model(inputs, o, name="predictor")
+    return predictor
+ 
 @tf.function
 def eval_augmenter(img):
     # random resize and crop. Increase the size before we crop.
