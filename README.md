@@ -1,11 +1,11 @@
-# Self-Supervised Object Detection on Custom Dataset with Barlow, SimCLR and SimSiam
+## Self-Supervised Object Detection on Custom Dataset with Barlow, SimCLR and SimSiam
 
-#### **Project Summary **
+### Project Summary 
 This project utilizes self-supervised learning for vehicle-type detection, the subset of data was taken from ImageNet. However, this code can be implemented on any other objects depending on your dataset.
 
 Pretraining and evaluation is done on one dataset, and transfer learning is performed on another dataset. The closer these 2 datasets to each other, the better results and generalization we will get. In this my case, pretraining was done on 5 types of vehicles, and transfer learning was performed on different 5 vehicle types.  
 
-#### **Implementation **
+### Implementation 
 1. Install the necessary dependencies from ```requirements.txt``` 
 2. Clone  tensorflow models repo from [here](https://github.com/tensorflow/models) (to use LARS optimizer for SimCLR)
 3. To run ```pretrain_and_linear_eval.py``` file, several arguments need to be given:
